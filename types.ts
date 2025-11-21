@@ -20,7 +20,7 @@ export interface SetData {
   weight?: number;
   reps?: number;
   distance?: number;
-  time?: number; // in minutes or seconds depending on context, usually minutes for cardio, seconds for planks
+  time?: number; // in minutes or seconds depending on context
   completed: boolean;
 }
 
@@ -28,16 +28,16 @@ export interface Exercise {
   id: string;
   name: string;
   type: ExerciseType;
-  target: string; // Muscle group or goal
+  target: string; 
   description?: string;
   trackingMode?: TrackingMode;
-  sets: SetData[]; // Used when in a workout context
+  sets: SetData[]; 
 }
 
 export interface WorkoutTemplate {
   id: string;
   name: string;
-  exercises: Exercise[]; // Template exercises (sets usually empty or just target counts)
+  exercises: Exercise[]; 
   lastUsed?: string;
 }
 
@@ -48,13 +48,20 @@ export interface WorkoutLog {
   startTime: string;
   endTime?: string;
   exercises: Exercise[];
-  templateId?: string; // If created from a template
+  templateId?: string; 
 }
 
 export interface UserProfile {
+  id: string; // Added ID to profile
   name: string;
   email: string;
-  unitSystem: 'imperial' | 'metric'; // lb/miles vs kg/meters
+  unitSystem: 'imperial' | 'metric'; 
 }
 
-export type ViewState = 'DASHBOARD' | 'TEMPLATES' | 'PROGRESS' | 'HISTORY' | 'ACTIVE_WORKOUT';
+export interface UserSummary {
+    id: string;
+    name: string;
+    lastActive: string;
+}
+
+export type ViewState = 'AUTH' | 'DASHBOARD' | 'TEMPLATES' | 'PROGRESS' | 'HISTORY' | 'ACTIVE_WORKOUT';

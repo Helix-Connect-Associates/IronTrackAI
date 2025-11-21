@@ -8,7 +8,13 @@ interface StoreContextType {
   workouts: WorkoutLog[];
   templates: WorkoutTemplate[];
   activeWorkout: WorkoutLog | null;
+  isAuthenticated: boolean;
   
+  // Auth Actions
+  login: (userId: string) => void;
+  logout: () => void;
+  register: (name: string, email: string) => void;
+
   // Actions
   startWorkout: (base?: WorkoutLog | WorkoutTemplate | null) => void;
   cancelWorkout: () => void;
@@ -25,72 +31,125 @@ interface StoreContextType {
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
-// Default data for new users
-const DEFAULT_USER: UserProfile = {
-  name: "Brian Hood",
-  email: "brian.hood471@gmail.com",
-  unitSystem: "imperial"
-};
-
-const DEFAULT_TEMPLATES: WorkoutTemplate[] = [
-  {
-    id: 't1',
-    name: 'Upper Body Power',
-    exercises: [
-      { id: 'e1', name: 'Bench Press (Barbell)', type: ExerciseType.Weight, target: 'Chest', sets: [] },
-      { id: 'e2', name: 'Pull-Up/Chin-Up', type: ExerciseType.Bodyweight, target: 'Back', sets: [] },
-      { id: 'e3', name: 'Overhead Press (Dumbbell)', type: ExerciseType.Weight, target: 'Shoulders', sets: [] }
-    ]
-  }
-];
+// Placeholder to avoid null checks everywhere before auth
+const EMPTY_USER: UserProfile = { id: '', name: '', email: '', unitSystem: 'imperial' };
 
 export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile>(DEFAULT_USER);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [user, setUser] = useState<UserProfile>(EMPTY_USER);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutLog | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Load data on mount
+  // 1. Initial Mount: Check for Legacy Data or Last User
   useEffect(() => {
-    const loadedUser = Storage.getUser(DEFAULT_USER);
-    const loadedWorkouts = Storage.getWorkouts();
-    const loadedTemplates = Storage.getTemplates();
-    const loadedActive = Storage.getActiveWorkout();
-
-    if (loadedTemplates.length === 0) {
-        setTemplates(DEFAULT_TEMPLATES);
-    } else {
-        setTemplates(loadedTemplates);
+    // Check for legacy data migration first
+    if (Storage.checkForLegacyData()) {
+        console.log("Migrating legacy data...");
+        const newId = Storage.migrateLegacyData();
+        login(newId);
+        return;
     }
 
-    setUser(loadedUser);
-    setWorkouts(loadedWorkouts);
-    setActiveWorkout(loadedActive);
-    setIsInitialized(true);
+    // Check for last active user
+    const lastUser = Storage.getLastUserId();
+    if (lastUser) {
+        login(lastUser);
+    }
   }, []);
 
-  // Persist changes ONLY after initialization
+  // 2. Login Logic
+  const login = (userId: string) => {
+      const loadedUser = Storage.getUser(userId);
+      if (!loadedUser) {
+          // Should not happen normally unless storage cleared manually
+          console.error("User profile not found");
+          return;
+      }
+      
+      setCurrentUserId(userId);
+      setUser(loadedUser);
+      setWorkouts(Storage.getWorkouts(userId));
+      setTemplates(Storage.getTemplates(userId));
+      setActiveWorkout(Storage.getActiveWorkout(userId));
+      
+      // Update last active timestamp in profile list
+      Storage.saveProfileSummary({
+          id: userId,
+          name: loadedUser.name,
+          lastActive: new Date().toISOString()
+      });
+      Storage.setLastUserId(userId);
+      setIsAuthenticated(true);
+  };
+
+  const logout = () => {
+      setCurrentUserId(null);
+      setUser(EMPTY_USER);
+      setWorkouts([]);
+      setTemplates([]);
+      setActiveWorkout(null);
+      setIsAuthenticated(false);
+      Storage.setLastUserId(null);
+  };
+
+  const register = (name: string, email: string) => {
+      const newId = generateId();
+      const newUser: UserProfile = {
+          id: newId,
+          name,
+          email,
+          unitSystem: 'imperial' // Default
+      };
+      
+      // Save initial data
+      Storage.saveUser(newId, newUser);
+      // Add default templates for new user
+      const defaultTemplates = [{
+            id: generateId(),
+            name: 'Upper Body Power',
+            exercises: [
+            { id: generateId(), name: 'Bench Press (Barbell)', type: ExerciseType.Weight, target: 'Chest', sets: [] },
+            { id: generateId(), name: 'Pull-Up/Chin-Up', type: ExerciseType.Bodyweight, target: 'Back', sets: [] },
+            { id: generateId(), name: 'Overhead Press (Dumbbell)', type: ExerciseType.Weight, target: 'Shoulders', sets: [] }
+            ]
+        }];
+      Storage.saveTemplates(newId, defaultTemplates);
+      
+      // Update Profile List
+      Storage.saveProfileSummary({
+          id: newId,
+          name: name,
+          lastActive: new Date().toISOString()
+      });
+
+      // Auto Login
+      login(newId);
+  };
+
+  // 3. Persisters - Only run if authenticated and currentUserId is set
   useEffect(() => {
-    if (!isInitialized) return;
-    Storage.saveWorkouts(workouts);
-  }, [workouts, isInitialized]);
+    if (!isAuthenticated || !currentUserId) return;
+    Storage.saveWorkouts(currentUserId, workouts);
+  }, [workouts, isAuthenticated, currentUserId]);
 
   useEffect(() => {
-    if (!isInitialized) return;
-    Storage.saveTemplates(templates);
-  }, [templates, isInitialized]);
+    if (!isAuthenticated || !currentUserId) return;
+    Storage.saveTemplates(currentUserId, templates);
+  }, [templates, isAuthenticated, currentUserId]);
 
   useEffect(() => {
-    if (!isInitialized) return;
-    Storage.saveUser(user);
-  }, [user, isInitialized]);
+    if (!isAuthenticated || !currentUserId) return;
+    Storage.saveUser(currentUserId, user);
+  }, [user, isAuthenticated, currentUserId]);
 
   useEffect(() => {
-    if (!isInitialized) return;
-    Storage.saveActiveWorkout(activeWorkout);
-  }, [activeWorkout, isInitialized]);
+    if (!isAuthenticated || !currentUserId) return;
+    Storage.saveActiveWorkout(currentUserId, activeWorkout);
+  }, [activeWorkout, isAuthenticated, currentUserId]);
 
+  // Actions
   const startWorkout = (base?: WorkoutLog | WorkoutTemplate | null) => {
     const newWorkout: WorkoutLog = {
       id: generateId(),
@@ -114,10 +173,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const finishWorkout = (finalState?: WorkoutLog) => {
-    // Use the passed finalState if available, otherwise use activeWorkout from state
     const targetWorkout = finalState || activeWorkout;
 
-    if (targetWorkout) {
+    if (targetWorkout && currentUserId) {
       const finished: WorkoutLog = {
         ...targetWorkout,
         endTime: new Date().toISOString()
@@ -125,15 +183,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       
       const newWorkoutList = [finished, ...workouts];
       
-      // CRITICAL: Save to storage IMMEDIATELY to prevent race conditions on unmount/reload
-      Storage.saveWorkouts(newWorkoutList);
-      Storage.saveActiveWorkout(null);
+      // Direct Save
+      Storage.saveWorkouts(currentUserId, newWorkoutList);
+      Storage.saveActiveWorkout(currentUserId, null);
 
-      // Update local state
       setWorkouts(newWorkoutList);
       setActiveWorkout(null);
-    } else {
-        console.error("No active workout to finish");
     }
   };
 
@@ -150,17 +205,17 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const exportData = () => {
-    return JSON.stringify(Storage.getAllData(), null, 2);
+    if (!currentUserId) return '{}';
+    return JSON.stringify(Storage.getAllUserData(currentUserId), null, 2);
   };
 
   const importData = (json: string): boolean => {
+    if (!currentUserId) return false;
     try {
         const data = JSON.parse(json);
-        Storage.importData(data);
-        // Force reload state
-        setUser(Storage.getUser(DEFAULT_USER));
-        setWorkouts(Storage.getWorkouts());
-        setTemplates(Storage.getTemplates());
+        Storage.importUserData(currentUserId, data);
+        // Reload
+        login(currentUserId);
         return true;
     } catch (e) {
         console.error("Import failed", e);
@@ -174,6 +229,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       workouts,
       templates,
       activeWorkout,
+      isAuthenticated,
+      login,
+      logout,
+      register,
       startWorkout,
       cancelWorkout,
       finishWorkout,

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { ViewState } from './types';
@@ -6,13 +7,14 @@ import Templates from './views/Templates';
 import Progress from './views/Progress';
 import History from './views/History';
 import ActiveWorkout from './views/ActiveWorkout';
+import Auth from './views/Auth';
 import { LayoutDashboard, Book, Activity, Calendar, Dumbbell } from 'lucide-react';
 
 const Navigation: React.FC<{ current: ViewState; onNavigate: (v: ViewState) => void }> = ({ current, onNavigate }) => {
   const navItems: { id: ViewState; label: string; icon: React.FC<any> }[] = [
     { id: 'DASHBOARD', label: 'Home', icon: LayoutDashboard },
     { id: 'TEMPLATES', label: 'Plans', icon: Book },
-    { id: 'ACTIVE_WORKOUT', label: 'Workout', icon: Dumbbell }, // Prominent center button style logic could go here
+    { id: 'ACTIVE_WORKOUT', label: 'Workout', icon: Dumbbell },
     { id: 'PROGRESS', label: 'Stats', icon: Activity },
     { id: 'HISTORY', label: 'Logs', icon: Calendar },
   ];
@@ -26,7 +28,6 @@ const Navigation: React.FC<{ current: ViewState; onNavigate: (v: ViewState) => v
            const isActive = current === item.id;
            const isWorkout = item.id === 'ACTIVE_WORKOUT';
            
-           // If in workout, highlight the workout tab significantly
            if (isWorkout) {
              return (
                 <button 
@@ -56,6 +57,7 @@ const Navigation: React.FC<{ current: ViewState; onNavigate: (v: ViewState) => v
 };
 
 const AppContent: React.FC = () => {
+  const { isAuthenticated } = useStore();
   const [view, setView] = useState<ViewState>('DASHBOARD');
   const [viewData, setViewData] = useState<any>(null);
 
@@ -63,6 +65,10 @@ const AppContent: React.FC = () => {
     setView(v);
     if (data) setViewData(data);
   };
+
+  if (!isAuthenticated) {
+    return <Auth />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">

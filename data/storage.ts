@@ -1,26 +1,28 @@
 
-import { WorkoutLog, WorkoutTemplate, UserProfile } from '../types';
+import { WorkoutLog, WorkoutTemplate, UserProfile, UserSummary } from '../types';
 
-const STORAGE_KEYS = {
+const GLOBAL_KEYS = {
+  PROFILES: 'ironTrack_profiles',
+  LAST_USER: 'ironTrack_last_user_id'
+};
+
+const LEGACY_KEYS = {
   WORKOUTS: 'ironTrack_workouts',
   TEMPLATES: 'ironTrack_templates',
   USER: 'ironTrack_user',
   ACTIVE_WORKOUT: 'ironTrack_active_workout'
 };
 
-// Helper to generate unique IDs safely in all environments
+// Helper to generate unique IDs
 export const generateId = (): string => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     try {
       return crypto.randomUUID();
-    } catch (e) {
-      // Fallback if crypto is available but randomUUID fails (insecure context)
-    }
+    } catch (e) { }
   }
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
 };
 
-// Helper to read from local storage with error handling
 const read = <T>(key: string, fallback: T): T => {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -32,7 +34,6 @@ const read = <T>(key: string, fallback: T): T => {
   }
 };
 
-// Helper to write to local storage
 const write = (key: string, data: any) => {
   if (typeof window === 'undefined') return;
   try {
@@ -43,34 +44,98 @@ const write = (key: string, data: any) => {
 };
 
 export const Storage = {
-  getWorkouts: (): WorkoutLog[] => read(STORAGE_KEYS.WORKOUTS, []),
-  saveWorkouts: (workouts: WorkoutLog[]) => write(STORAGE_KEYS.WORKOUTS, workouts),
+  // --- Global Profile Management ---
+  getProfiles: (): UserSummary[] => read(GLOBAL_KEYS.PROFILES, []),
   
-  getTemplates: (): WorkoutTemplate[] => read(STORAGE_KEYS.TEMPLATES, []),
-  saveTemplates: (templates: WorkoutTemplate[]) => write(STORAGE_KEYS.TEMPLATES, templates),
-  
-  getUser: (fallback: UserProfile): UserProfile => read(STORAGE_KEYS.USER, fallback),
-  saveUser: (user: UserProfile) => write(STORAGE_KEYS.USER, user),
-
-  getActiveWorkout: (): WorkoutLog | null => read(STORAGE_KEYS.ACTIVE_WORKOUT, null),
-  saveActiveWorkout: (workout: WorkoutLog | null) => {
-    if (workout === null) {
-        if (typeof window !== 'undefined') localStorage.removeItem(STORAGE_KEYS.ACTIVE_WORKOUT);
+  saveProfileSummary: (summary: UserSummary) => {
+    const profiles = Storage.getProfiles();
+    const existing = profiles.findIndex(p => p.id === summary.id);
+    let newProfiles;
+    if (existing >= 0) {
+        newProfiles = [...profiles];
+        newProfiles[existing] = summary;
     } else {
-        write(STORAGE_KEYS.ACTIVE_WORKOUT, workout);
+        newProfiles = [...profiles, summary];
     }
+    write(GLOBAL_KEYS.PROFILES, newProfiles);
   },
 
-  // Full System Backup/Restore
-  getAllData: () => ({
-    user: read(STORAGE_KEYS.USER, null),
-    workouts: read(STORAGE_KEYS.WORKOUTS, []),
-    templates: read(STORAGE_KEYS.TEMPLATES, []),
+  getLastUserId: (): string | null => read(GLOBAL_KEYS.LAST_USER, null),
+  setLastUserId: (id: string | null) => {
+    if (id) write(GLOBAL_KEYS.LAST_USER, id);
+    else localStorage.removeItem(GLOBAL_KEYS.LAST_USER);
+  },
+
+  // --- User Specific Data (Namespaced) ---
+  getUser: (userId: string): UserProfile | null => read(`ironTrack_user_${userId}`, null),
+  saveUser: (userId: string, user: UserProfile) => write(`ironTrack_user_${userId}`, user),
+
+  getWorkouts: (userId: string): WorkoutLog[] => read(`ironTrack_workouts_${userId}`, []),
+  saveWorkouts: (userId: string, workouts: WorkoutLog[]) => write(`ironTrack_workouts_${userId}`, workouts),
+
+  getTemplates: (userId: string): WorkoutTemplate[] => read(`ironTrack_templates_${userId}`, []),
+  saveTemplates: (userId: string, templates: WorkoutTemplate[]) => write(`ironTrack_templates_${userId}`, templates),
+
+  getActiveWorkout: (userId: string): WorkoutLog | null => read(`ironTrack_active_${userId}`, null),
+  saveActiveWorkout: (userId: string, workout: WorkoutLog | null) => {
+    const key = `ironTrack_active_${userId}`;
+    if (workout === null) localStorage.removeItem(key);
+    else write(key, workout);
+  },
+
+  // --- Migration Logic ---
+  checkForLegacyData: (): boolean => {
+      const legacyUser = localStorage.getItem(LEGACY_KEYS.USER);
+      return !!legacyUser;
+  },
+
+  migrateLegacyData: (): string => {
+      // 1. Read Legacy Data
+      const lUser = read(LEGACY_KEYS.USER, { name: 'Legacy User', email: '', unitSystem: 'imperial' });
+      const lWorkouts = read(LEGACY_KEYS.WORKOUTS, []);
+      const lTemplates = read(LEGACY_KEYS.TEMPLATES, []);
+      
+      // 2. Create New ID
+      const newId = generateId();
+      
+      // 3. Save to Namespaced Keys
+      const userProfile: UserProfile = { 
+        id: newId,
+        name: lUser.name,
+        email: lUser.email,
+        unitSystem: lUser.unitSystem === 'metric' ? 'metric' : 'imperial'
+      };
+      write(`ironTrack_user_${newId}`, userProfile);
+      write(`ironTrack_workouts_${newId}`, lWorkouts);
+      write(`ironTrack_templates_${newId}`, lTemplates);
+
+      // 4. Create Profile Summary
+      const summary: UserSummary = {
+          id: newId,
+          name: lUser.name,
+          lastActive: new Date().toISOString()
+      };
+      write(GLOBAL_KEYS.PROFILES, [summary]);
+
+      // 5. Clear Legacy Keys (Safety: Keep them or rename? Let's clear to prevent double migration)
+      localStorage.removeItem(LEGACY_KEYS.USER);
+      localStorage.removeItem(LEGACY_KEYS.WORKOUTS);
+      localStorage.removeItem(LEGACY_KEYS.TEMPLATES);
+      localStorage.removeItem(LEGACY_KEYS.ACTIVE_WORKOUT);
+
+      return newId;
+  },
+
+  // --- Data Management ---
+  getAllUserData: (userId: string) => ({
+    user: read(`ironTrack_user_${userId}`, null),
+    workouts: read(`ironTrack_workouts_${userId}`, []),
+    templates: read(`ironTrack_templates_${userId}`, []),
   }),
-  
-  importData: (data: any) => {
-    if (data.user) write(STORAGE_KEYS.USER, data.user);
-    if (data.workouts) write(STORAGE_KEYS.WORKOUTS, data.workouts);
-    if (data.templates) write(STORAGE_KEYS.TEMPLATES, data.templates);
+
+  importUserData: (userId: string, data: any) => {
+      if (data.user) write(`ironTrack_user_${userId}`, { ...data.user, id: userId });
+      if (data.workouts) write(`ironTrack_workouts_${userId}`, data.workouts);
+      if (data.templates) write(`ironTrack_templates_${userId}`, data.templates);
   }
 };

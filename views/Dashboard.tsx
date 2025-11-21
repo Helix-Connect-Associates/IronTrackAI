@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Play, Calendar, Zap, ChevronRight, Plus, Sparkles, Settings, Download, Upload, AlertTriangle, Share2 } from 'lucide-react';
+import { Play, Calendar, Zap, ChevronRight, Plus, Sparkles, Settings, Download, Upload, AlertTriangle, Share2, LogOut } from 'lucide-react';
 import { format, isSameWeek, isSameMonth } from 'date-fns';
 import { generateWorkoutRecommendation } from '../services/geminiService';
 import { ExerciseType, Exercise } from '../types';
@@ -12,7 +12,7 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
-  const { workouts, templates, startWorkout, user, exportData, importData } = useStore();
+  const { workouts, templates, startWorkout, user, exportData, importData, logout } = useStore();
   const [showAiModal, setShowAiModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -44,7 +44,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     const blob = new Blob([data], { type: 'application/json' });
     const file = new File([blob], filename, { type: 'application/json' });
 
-    // Try native sharing first (Mobile friendly)
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
             await navigator.share({
@@ -54,12 +53,10 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             });
             return;
         } catch (e) {
-            // Ignore abort errors, fall through to download
             console.log('Share cancelled or failed, falling back to download');
         }
     }
 
-    // Fallback to standard download
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -86,7 +83,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     setAiLoading(true);
     try {
       const result = await generateWorkoutRecommendation(aiGoals, aiLimits, "60 mins");
-      // Convert AI result to usable template format temporarily
       const newExercises: Exercise[] = result.exercises.map((e: any) => ({
         id: generateId(),
         name: e.name,
@@ -283,22 +279,19 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                     <div className="flex justify-between items-start mb-6">
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
                             <Settings className="w-5 h-5 text-slate-400" />
-                            Data Management
+                            Settings
                         </h2>
                         <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-white">✕</button>
                     </div>
 
                     <div className="space-y-6">
-                        <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700 flex items-start gap-3">
-                            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                            <div>
-                                <p className="text-sm text-slate-300 font-medium mb-1">Data On Device Only</p>
-                                <p className="text-xs text-slate-400">
-                                    Your workouts are saved to this browser. 
-                                    If you clear your cache or use a different device, your data will not appear unless you export it first.
-                                </p>
-                            </div>
-                        </div>
+                        <button 
+                            onClick={logout}
+                            className="w-full p-4 bg-slate-800 hover:bg-red-500/10 border border-slate-700 hover:border-red-500/50 rounded-xl transition-colors flex items-center justify-center gap-2 text-red-400"
+                        >
+                            <LogOut className="w-5 h-5" />
+                            Switch User / Logout
+                        </button>
 
                         <div className="grid grid-cols-2 gap-4">
                             <button onClick={handleExport} className="flex flex-col items-center justify-center p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-colors group">
@@ -309,10 +302,7 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                                         <Download className="w-6 h-6 text-emerald-500" />
                                     )}
                                 </div>
-                                <span className="text-sm font-medium text-white">Export / Backup</span>
-                                <span className="text-[10px] text-slate-500 mt-1 text-center">
-                                    {typeof navigator.share === 'function' ? "Share File to Drive/Files" : "Download JSON"}
-                                </span>
+                                <span className="text-sm font-medium text-white">Backup Data</span>
                             </button>
 
                             <label className="flex flex-col items-center justify-center p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-colors cursor-pointer group">
@@ -320,7 +310,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                                     <Upload className="w-6 h-6 text-blue-500" />
                                 </div>
                                 <span className="text-sm font-medium text-white">Import Data</span>
-                                <span className="text-[10px] text-slate-500 mt-1">Load JSON Backup</span>
                                 <input type="file" accept=".json" className="hidden" onChange={handleImport} />
                             </label>
                         </div>
@@ -330,12 +319,6 @@ const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                                 {importStatus}
                             </div>
                         )}
-
-                        <div className="pt-4 border-t border-slate-800">
-                            <p className="text-[10px] text-slate-600 text-center">
-                                IronTrack AI v1.1.0 • Mobile Ready
-                            </p>
-                        </div>
                     </div>
                 </div>
             </div>
