@@ -1,7 +1,8 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { Exercise, ExerciseType, TrackingMode } from "../types";
 
-const apiKey = process.env.VITE_API_KEY || ''; 
+//const apiKey = process.env.VITE_API_KEY || ''; 
+const apiKey = import.meta.env.VITE_API_KEY
 const ai = new GoogleGenAI({ apiKey });
 
 // Helper to get today's model
