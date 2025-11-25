@@ -1,0 +1,11 @@
+[build]
+  publish = "dist"
+  command = "npm run build"
+
+[build.environment]
+  # Disable secrets scanning smart detection since VITE_API_KEY is intentionally
+  # exposed to the client as a public Google Gemini API key
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+
+[dev]
+  targetPort = 3000

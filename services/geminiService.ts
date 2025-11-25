@@ -3,7 +3,7 @@ import { Exercise, ExerciseType, TrackingMode, ExerciseDefinition } from "../typ
 
 // Helper to safely get the API Key from various sources
 const getApiKey = (): string | null => {
-  // 1. Try Vite Environment (For Local Dev with .env.local)
+   // 1. Try Vite Environment (For Local Dev with .env.local and Netlify with VITE_API_KEY)
   try {
     // @ts-ignore - Check if running in Vite context
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
@@ -14,12 +14,7 @@ const getApiKey = (): string | null => {
     // Ignore errors if import.meta is not available
   }
 
-  // 2. Try Process Env (For Netlify Injection via index.html)
-  if (typeof process !== 'undefined' && process.env && process.env.API_KEY && !process.env.API_KEY.includes('PLACEHOLDER')) {
-    return process.env.API_KEY;
-  }
-
-  // 3. Try Local Storage (Manual Override)
+  // 2. Try Local Storage (Manual Override)
   if (typeof window !== 'undefined') {
      return localStorage.getItem('IRONTRACK_API_KEY');
   }
