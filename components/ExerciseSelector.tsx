@@ -1,26 +1,71 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Plus, X, ArrowLeft, Sparkles, Dumbbell, HeartPulse, PersonStanding } from 'lucide-react';
 import { DEFAULT_EXERCISES } from '../data/exercises';
 import { ExerciseDefinition, ExerciseType, TrackingMode } from '../types';
 import { getExerciseDetails } from '../services/geminiService';
+import { useStore } from '../context/StoreContext';
 
 interface ExerciseSelectorProps {
     onSelect: (def: ExerciseDefinition) => void;
     onClose: () => void;
 }
 
+const MUSCLE_GROUPS = [
+  "Full Body",
+  "Cardiovascular System",
+  "Arms",
+  "Arms (Biceps)",
+  "Arms (Triceps)",
+  "Arms (Forearms)",
+  "Back",
+  "Back (Lats)",
+  "Back (Traps)",
+  "Back (Upper)",
+  "Chest",
+  "Chest: Upper",
+  "Chest: Middle",
+  "Chest: Lower",
+  "Core",
+  "Core (Abs)",
+  "Core (Rotation)",
+  "Core (Lower)",
+  "Core Stability",
+  "Legs",
+  "Legs (Calves)",
+  "Legs (Hamstrings)",
+  "Legs (Quadriceps)",
+  "Legs (Glutes)",
+  "Legs (Adductors)",
+  "Legs (Abductors)",
+  "Shoulders",
+  "Shoulders (Anterior Deltoid)",
+  "Shoulders (Lateral Deltoid)",
+  "Shoulders (Posterior Deltoid)"
+];
+
 export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, onClose }) => {
+    const { customExercises, addCustomExercise } = useStore();
     const [mode, setMode] = useState<'SEARCH' | 'CREATE'>('SEARCH');
     const [search, setSearch] = useState('');
     
     // Create Form State
     const [newName, setNewName] = useState('');
     const [newType, setNewType] = useState<ExerciseType>(ExerciseType.Weight);
-    const [newTarget, setNewTarget] = useState('');
+    const [targetInput, setTargetInput] = useState('');
+    const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
     const [newTrackingMode, setNewTrackingMode] = useState<TrackingMode>('weight_reps');
     const [loadingAi, setLoadingAi] = useState(false);
+    
+    // Suggestions State
+    const [showTargetSuggestions, setShowTargetSuggestions] = useState(false);
 
-    const filtered = DEFAULT_EXERCISES.filter(e => 
+    // Combine default and custom exercises
+    const allExercises = useMemo(() => {
+        return [...customExercises, ...DEFAULT_EXERCISES];
+    }, [customExercises]);
+
+    const filtered = allExercises.filter(e => 
         e.name.toLowerCase().includes(search.toLowerCase()) ||
         e.target.toLowerCase().includes(search.toLowerCase())
     );
@@ -41,7 +86,9 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
         const details = await getExerciseDetails(newName);
         if (details) {
             setNewType(details.type);
-            setNewTarget(details.target);
+            // Split comma separated string into tags, trim whitespace
+            const tags = details.target.split(',').map(t => t.trim()).filter(t => t);
+            setSelectedTargets(tags);
             setNewTrackingMode(details.trackingMode);
         }
         setLoadingAi(false);
@@ -49,13 +96,47 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
 
     const handleCreate = () => {
         if (!newName) return;
-        onSelect({
+        // Combine selected targets plus whatever is currently typed in the input
+        const finalTargets = [...selectedTargets];
+        if (targetInput.trim() && !finalTargets.includes(targetInput.trim())) {
+            finalTargets.push(targetInput.trim());
+        }
+
+        const newDefinition: ExerciseDefinition = {
             name: newName,
             type: newType,
-            target: newTarget || 'Custom',
+            target: finalTargets.join(', ') || 'Custom',
             description: 'Custom exercise',
             trackingMode: newTrackingMode
-        });
+        };
+
+        // Save to master list for future use
+        addCustomExercise(newDefinition);
+
+        // Add to current workout
+        onSelect(newDefinition);
+    };
+
+    const addTarget = (t: string) => {
+        if (!selectedTargets.includes(t)) {
+            setSelectedTargets([...selectedTargets, t]);
+        }
+        setTargetInput('');
+        setShowTargetSuggestions(false);
+    };
+
+    const removeTarget = (t: string) => {
+        setSelectedTargets(selectedTargets.filter(item => item !== t));
+    };
+
+    const handleTargetKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && targetInput.trim()) {
+            e.preventDefault();
+            addTarget(targetInput.trim());
+        }
+        if (e.key === 'Backspace' && !targetInput && selectedTargets.length > 0) {
+            removeTarget(selectedTargets[selectedTargets.length - 1]);
+        }
     };
 
     // Update tracking mode default based on type selection if user hasn't manually set a weird combo
@@ -67,6 +148,11 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
     };
 
     if (mode === 'CREATE') {
+        const filteredMuscles = MUSCLE_GROUPS.filter(m => 
+            m.toLowerCase().includes(targetInput.toLowerCase()) && 
+            !selectedTargets.includes(m)
+        );
+
         return (
             <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                 <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md flex flex-col shadow-2xl animate-in fade-in zoom-in duration-200">
@@ -122,12 +208,38 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
 
                         <div>
                             <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Target Muscles</label>
-                            <input 
-                                className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:border-blue-500 outline-none"
-                                placeholder="e.g. Biceps, Forearms"
-                                value={newTarget}
-                                onChange={e => setNewTarget(e.target.value)}
-                            />
+                            <div className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 min-h-[50px] flex flex-wrap gap-2 focus-within:border-blue-500 relative">
+                                {selectedTargets.map(t => (
+                                    <span key={t} className="bg-blue-600 text-white text-xs px-2 py-1 rounded-md flex items-center gap-1">
+                                        {t}
+                                        <button onClick={() => removeTarget(t)} className="hover:text-blue-200"><X className="w-3 h-3" /></button>
+                                    </span>
+                                ))}
+                                <div className="relative flex-1 min-w-[120px]">
+                                    <input 
+                                        className="w-full bg-transparent text-white outline-none text-sm py-1"
+                                        placeholder={selectedTargets.length === 0 ? "Select or type muscles..." : ""}
+                                        value={targetInput}
+                                        onChange={e => setTargetInput(e.target.value)}
+                                        onKeyDown={handleTargetKeyDown}
+                                        onFocus={() => setShowTargetSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowTargetSuggestions(false), 200)}
+                                    />
+                                    {showTargetSuggestions && filteredMuscles.length > 0 && (
+                                        <div className="absolute top-full left-0 mt-2 w-full min-w-[200px] bg-slate-800 border border-slate-700 rounded-lg max-h-40 overflow-y-auto shadow-xl z-20">
+                                            {filteredMuscles.map(m => (
+                                                <button
+                                                    key={m}
+                                                    className="w-full text-left px-4 py-2 hover:bg-slate-700 text-sm text-slate-300 border-b border-slate-700/50 last:border-0"
+                                                    onClick={() => addTarget(m)}
+                                                >
+                                                    {m}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                         
                         <button 

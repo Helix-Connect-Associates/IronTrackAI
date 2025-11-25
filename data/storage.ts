@@ -1,5 +1,5 @@
 
-import { WorkoutLog, WorkoutTemplate, UserProfile, UserSummary } from '../types';
+import { WorkoutLog, WorkoutTemplate, UserProfile, UserSummary, ExerciseDefinition } from '../types';
 
 const GLOBAL_KEYS = {
   PROFILES: 'ironTrack_profiles',
@@ -83,7 +83,15 @@ export const Storage = {
     else write(key, workout);
   },
 
+  getCustomExercises: (userId: string): ExerciseDefinition[] => read(`ironTrack_custom_exercises_${userId}`, []),
+  saveCustomExercises: (userId: string, exercises: ExerciseDefinition[]) => write(`ironTrack_custom_exercises_${userId}`, exercises),
+
+
   // --- Migration Logic ---
+  runDataMigration: () => {
+    // Placeholder for future schema migrations
+  },
+
   checkForLegacyData: (): boolean => {
       const legacyUser = localStorage.getItem(LEGACY_KEYS.USER);
       return !!legacyUser;
@@ -131,11 +139,13 @@ export const Storage = {
     user: read(`ironTrack_user_${userId}`, null),
     workouts: read(`ironTrack_workouts_${userId}`, []),
     templates: read(`ironTrack_templates_${userId}`, []),
+    customExercises: read(`ironTrack_custom_exercises_${userId}`, [])
   }),
 
   importUserData: (userId: string, data: any) => {
       if (data.user) write(`ironTrack_user_${userId}`, { ...data.user, id: userId });
       if (data.workouts) write(`ironTrack_workouts_${userId}`, data.workouts);
       if (data.templates) write(`ironTrack_templates_${userId}`, data.templates);
+      if (data.customExercises) write(`ironTrack_custom_exercises_${userId}`, data.customExercises);
   }
 };

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { WorkoutTemplate, Exercise, ExerciseType, ExerciseDefinition } from '../types';
-import { Edit, Trash, Play, Copy, Sparkles, Save, Plus, ArrowLeft } from 'lucide-react';
+import { Edit, Trash, Play, Copy, Sparkles, Save, Plus, ArrowLeft, X, Check } from 'lucide-react';
 import { analyzeWorkoutTemplate } from '../services/geminiService';
 import { ExerciseSelector } from '../components/ExerciseSelector';
 import { generateId } from '../data/storage';
@@ -11,6 +11,10 @@ interface TemplatesProps {
   onNavigate: (view: any) => void;
 }
 
+const FOCUS_AREAS = [
+    "Whole Body", "Chest", "Back", "Arms", "Abdominals", "Legs", "Shoulders", "Cardio"
+];
+
 const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
   const { templates, saveTemplate, deleteTemplate, startWorkout } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -18,6 +22,11 @@ const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [showExerciseSelector, setShowExerciseSelector] = useState(false);
+  
+  // Analysis Config State
+  const [showAnalysisConfig, setShowAnalysisConfig] = useState(false);
+  const [selectedFocus, setSelectedFocus] = useState<string[]>([]);
+  const [limitations, setLimitations] = useState('');
 
   const handleStartEdit = (template: WorkoutTemplate) => {
     setEditingId(template.id);
@@ -68,10 +77,17 @@ const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
       setShowExerciseSelector(false);
   };
 
-  const handleAnalyze = async () => {
+  const toggleFocus = (area: string) => {
+      setSelectedFocus(prev => 
+        prev.includes(area) ? prev.filter(a => a !== area) : [...prev, area]
+      );
+  };
+
+  const handleRunAnalysis = async () => {
       if(!editForm) return;
       setAnalyzing(true);
-      const analysis = await analyzeWorkoutTemplate(editForm.exercises, "General Strength & Hypertrophy");
+      setShowAnalysisConfig(false); // Close modal
+      const analysis = await analyzeWorkoutTemplate(editForm.exercises, selectedFocus, limitations);
       setAiAnalysis(analysis);
       setAnalyzing(false);
   };
@@ -118,7 +134,7 @@ const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
 
             <div className="grid grid-cols-2 gap-3">
                 <button 
-                    onClick={handleAnalyze}
+                    onClick={() => setShowAnalysisConfig(true)}
                     className="p-3 bg-purple-600/20 border border-purple-500/50 text-purple-300 rounded-xl flex items-center justify-center gap-2 hover:bg-purple-600/30 transition-colors"
                 >
                     {analyzing ? <div className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" /> : <Sparkles className="w-4 h-4" />}
@@ -135,7 +151,7 @@ const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
             {aiAnalysis && (
                 <div className="bg-slate-800 p-4 rounded-xl border border-purple-500/30">
                     <h3 className="text-purple-400 font-bold mb-2 flex items-center gap-2"><Sparkles className="w-4 h-4"/> Analysis</h3>
-                    <p className="text-slate-300 text-sm whitespace-pre-line">{aiAnalysis}</p>
+                    <p className="text-slate-300 text-sm whitespace-pre-line leading-relaxed">{aiAnalysis}</p>
                 </div>
             )}
 
@@ -144,6 +160,55 @@ const Templates: React.FC<TemplatesProps> = ({ onNavigate }) => {
                     onSelect={handleAddExercise} 
                     onClose={() => setShowExerciseSelector(false)} 
                 />
+            )}
+
+            {showAnalysisConfig && (
+                <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in duration-200">
+                        <div className="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 className="text-white font-bold flex items-center gap-2">
+                                    <Sparkles className="w-5 h-5 text-purple-500" />
+                                    Analyze Template
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-1">Select focus areas for this workout.</p>
+                            </div>
+                            <button onClick={() => setShowAnalysisConfig(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5"/></button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-2">
+                                {FOCUS_AREAS.map(area => (
+                                    <button
+                                        key={area}
+                                        onClick={() => toggleFocus(area)}
+                                        className={`p-2 rounded-lg text-xs font-medium border transition-all flex items-center justify-between ${selectedFocus.includes(area) ? 'bg-purple-600 border-purple-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                                    >
+                                        {area}
+                                        {selectedFocus.includes(area) && <Check className="w-3 h-3" />}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Limitations / Injuries</label>
+                                <input 
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:border-purple-500 outline-none"
+                                    placeholder="e.g. Lower back pain, No cable machine"
+                                    value={limitations}
+                                    onChange={e => setLimitations(e.target.value)}
+                                />
+                            </div>
+
+                            <button 
+                                onClick={handleRunAnalysis}
+                                className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-colors flex justify-center items-center gap-2"
+                            >
+                                <Sparkles className="w-4 h-4" /> Run Analysis
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
       );

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { WorkoutLog, WorkoutTemplate, UserProfile, Exercise, ExerciseType } from '../types';
+import { WorkoutLog, WorkoutTemplate, UserProfile, Exercise, ExerciseType, ExerciseDefinition } from '../types';
 import { Storage, generateId } from '../data/storage';
 
 interface StoreContextType {
@@ -8,6 +8,7 @@ interface StoreContextType {
   workouts: WorkoutLog[];
   templates: WorkoutTemplate[];
   activeWorkout: WorkoutLog | null;
+  customExercises: ExerciseDefinition[];
   isAuthenticated: boolean;
   
   // Auth Actions
@@ -24,6 +25,8 @@ interface StoreContextType {
   saveTemplate: (template: WorkoutTemplate) => void;
   deleteTemplate: (id: string) => void;
   
+  addCustomExercise: (exercise: ExerciseDefinition) => void;
+
   updateUser: (user: UserProfile) => void;
   exportData: () => string;
   importData: (json: string) => boolean;
@@ -39,11 +42,15 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [user, setUser] = useState<UserProfile>(EMPTY_USER);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
+  const [customExercises, setCustomExercises] = useState<ExerciseDefinition[]>([]);
   const [activeWorkout, setActiveWorkout] = useState<WorkoutLog | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // 1. Initial Mount: Check for Legacy Data or Last User
   useEffect(() => {
+    // Run Data Migration to update targets if needed
+    Storage.runDataMigration();
+
     // Check for legacy data migration first
     if (Storage.checkForLegacyData()) {
         console.log("Migrating legacy data...");
@@ -72,6 +79,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setUser(loadedUser);
       setWorkouts(Storage.getWorkouts(userId));
       setTemplates(Storage.getTemplates(userId));
+      setCustomExercises(Storage.getCustomExercises(userId));
       setActiveWorkout(Storage.getActiveWorkout(userId));
       
       // Update last active timestamp in profile list
@@ -89,6 +97,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setUser(EMPTY_USER);
       setWorkouts([]);
       setTemplates([]);
+      setCustomExercises([]);
       setActiveWorkout(null);
       setIsAuthenticated(false);
       Storage.setLastUserId(null);
@@ -138,6 +147,11 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     if (!isAuthenticated || !currentUserId) return;
     Storage.saveTemplates(currentUserId, templates);
   }, [templates, isAuthenticated, currentUserId]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !currentUserId) return;
+    Storage.saveCustomExercises(currentUserId, customExercises);
+  }, [customExercises, isAuthenticated, currentUserId]);
 
   useEffect(() => {
     if (!isAuthenticated || !currentUserId) return;
@@ -204,6 +218,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setTemplates(prev => prev.filter(t => t.id !== id));
   };
 
+  const addCustomExercise = (exercise: ExerciseDefinition) => {
+      setCustomExercises(prev => {
+          // Avoid duplicates based on name
+          if (prev.some(e => e.name.toLowerCase() === exercise.name.toLowerCase())) {
+              return prev;
+          }
+          return [...prev, exercise];
+      });
+  };
+
   const exportData = () => {
     if (!currentUserId) return '{}';
     return JSON.stringify(Storage.getAllUserData(currentUserId), null, 2);
@@ -228,6 +252,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       user,
       workouts,
       templates,
+      customExercises,
       activeWorkout,
       isAuthenticated,
       login,
@@ -239,6 +264,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       updateActiveWorkout,
       saveTemplate,
       deleteTemplate,
+      addCustomExercise,
       updateUser: setUser,
       exportData,
       importData

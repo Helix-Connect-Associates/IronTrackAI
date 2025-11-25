@@ -1,9 +1,38 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Exercise, ExerciseType, TrackingMode } from "../types";
+import { Exercise, ExerciseType, TrackingMode, ExerciseDefinition } from "../types";
 
-//const apiKey = process.env.VITE_API_KEY || ''; 
-const apiKey = import.meta.env.VITE_API_KEY
-const ai = new GoogleGenAI({ apiKey });
+// Helper to safely get the API Key from various sources
+const getApiKey = (): string | null => {
+  // 1. Try Vite Environment (For Local Dev with .env.local)
+  try {
+    // @ts-ignore - Check if running in Vite context
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+  } catch (e) {
+    // Ignore errors if import.meta is not available
+  }
+
+  // 2. Try Process Env (For Netlify Injection via index.html)
+  if (typeof process !== 'undefined' && process.env && process.env.API_KEY && !process.env.API_KEY.includes('PLACEHOLDER')) {
+    return process.env.API_KEY;
+  }
+
+  // 3. Try Local Storage (Manual Override)
+  if (typeof window !== 'undefined') {
+     return localStorage.getItem('IRONTRACK_API_KEY');
+  }
+
+  return null;
+};
+
+// Initialize AI Client on demand to ensure we catch the key if it loads late
+const getAiClient = () => {
+  const key = getApiKey();
+  if (!key) return null;
+  return new GoogleGenAI({ apiKey: key });
+};
 
 // Helper to get today's model
 const MODEL_FAST = 'gemini-2.5-flash';
@@ -45,7 +74,33 @@ const exerciseDetailSchema: Schema = {
   required: ['type', 'target', 'trackingMode']
 };
 
+const recommendationSchema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+        recommendations: {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    name: { type: Type.STRING },
+                    type: { type: Type.STRING, enum: ['Weight Training', 'Cardio', 'Bodyweight'] },
+                    target: { type: Type.STRING },
+                    rationale: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                },
+                required: ['name', 'type', 'target', 'rationale']
+            }
+        }
+    }
+};
+
 export const generateWorkoutRecommendation = async (goals: string, limitations: string, duration: string): Promise<any> => {
+  const ai = getAiClient();
+  if (!ai) {
+      alert("API Key is missing. Check .env.local or Netlify settings.");
+      throw new Error("API Key not configured");
+  }
+
   try {
     const prompt = `Generate a gym workout based on the following parameters:
     User Goals: ${goals}
@@ -71,15 +126,23 @@ export const generateWorkoutRecommendation = async (goals: string, limitations: 
   }
 };
 
-export const analyzeWorkoutTemplate = async (exercises: Exercise[], goals: string): Promise<string> => {
+export const analyzeWorkoutTemplate = async (exercises: Exercise[], focusAreas: string[], limitations: string): Promise<string> => {
+  const ai = getAiClient();
+  if (!ai) return "API Key is missing.";
+
   try {
     const exerciseList = exercises.map(e => `${e.name} (${e.type}) - Target: ${e.target}`).join('\n');
     const prompt = `Analyze this workout routine:
     ${exerciseList}
     
-    User Goals: ${goals}
+    Target Focus Areas: ${focusAreas.join(', ')}
+    User Limitations/Injuries: ${limitations || 'None'}
     
-    Provide specific recommendations to improve this workout. Suggest adding missing movements, removing redundant ones, or modifying volume/intensity. Keep it concise.`;
+    Provide specific recommendations to improve this workout based on the focus areas. 
+    Check if the exercises match the focus.
+    Suggest adding missing movements, removing redundant ones, or modifying volume/intensity. 
+    Ensure the limitations are respected.
+    Keep it concise.`;
 
     const response = await ai.models.generateContent({
       model: MODEL_FAST,
@@ -97,6 +160,9 @@ export const analyzeWorkoutTemplate = async (exercises: Exercise[], goals: strin
 };
 
 export const getExerciseDetails = async (name: string): Promise<{ type: ExerciseType, target: string, description: string, trackingMode: TrackingMode } | null> => {
+  const ai = getAiClient();
+  if (!ai) return null;
+
   try {
     const prompt = `Provide technical details for the exercise: "${name}".
     Classify the type carefully.
@@ -126,4 +192,42 @@ export const getExerciseDetails = async (name: string): Promise<{ type: Exercise
       console.error("AI Detail Error:", error);
       return null;
   }
+};
+
+export const recommendNextExercise = async (currentExercises: Exercise[], goal: string, limitations?: string): Promise<ExerciseDefinition[]> => {
+    const ai = getAiClient();
+    if (!ai) return [];
+
+    try {
+        const history = currentExercises.map(e => `${e.name} (${e.type})`).join(', ');
+        const prompt = `I am currently working out.
+        Exercises completed so far: ${history || "None yet"}.
+        Current Goal for this session: ${goal}.
+        Context/Limitations: ${limitations || "None"}.
+        
+        Recommend 3 specific exercises to perform next. Consider biomechanical balance and the stated goal.
+        Include a short rationale for each.`;
+
+        const response = await ai.models.generateContent({
+            model: MODEL_FAST,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: recommendationSchema,
+                systemInstruction: "You are an adaptive personal trainer."
+            }
+        });
+
+        const data = JSON.parse(response.text || "{}");
+        return (data.recommendations || []).map((r: any) => ({
+            name: r.name,
+            type: r.type as ExerciseType,
+            target: r.target,
+            description: r.rationale // Mapping rationale to description for display
+        }));
+
+    } catch (error) {
+        console.error("AI Next Rec Error", error);
+        return [];
+    }
 };

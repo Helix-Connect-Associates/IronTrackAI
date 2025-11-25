@@ -2,9 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Exercise, ExerciseType, SetData, ExerciseDefinition, TrackingMode } from '../types';
-import { Plus, Check, Timer, Trash2 } from 'lucide-react';
+import { Plus, Check, Timer, Trash2, Sparkles, X } from 'lucide-react';
 import { ExerciseSelector } from '../components/ExerciseSelector';
 import { generateId } from '../data/storage';
+import { recommendNextExercise } from '../services/geminiService';
 
 interface ActiveWorkoutProps {
   onFinish: () => void;
@@ -14,6 +15,13 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
   const { activeWorkout, updateActiveWorkout, cancelWorkout, finishWorkout, user } = useStore();
   const [elapsed, setElapsed] = useState(0);
   const [showExerciseSelector, setShowExerciseSelector] = useState(false);
+  
+  // AI Modal State
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [aiGoal, setAiGoal] = useState('');
+  const [aiLimitations, setAiLimitations] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRecommendations, setAiRecommendations] = useState<ExerciseDefinition[]>([]);
 
   useEffect(() => {
     if (!activeWorkout?.startTime) return;
@@ -59,6 +67,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
       exercises: [...activeWorkout.exercises, newEx]
     });
     setShowExerciseSelector(false);
+    setShowAiModal(false); // Close AI modal if open
   };
 
   // Immutable update helper for exercises
@@ -126,9 +135,6 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
   };
 
   const handleFinish = () => {
-    // Pass the current activeWorkout directly to ensure we save the latest state
-    // We don't need a window.confirm here if the UI is clear, but safety is fine.
-    // Removing confirm for speed as requested implicitly by "not saving" frustration.
     finishWorkout(activeWorkout);
     onFinish();
   };
@@ -137,6 +143,15 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
       if (val === '') return undefined;
       const n = parseFloat(val);
       return isNaN(n) ? undefined : n;
+  };
+
+  const handleAiSuggest = async () => {
+    if (!aiGoal) return;
+    setAiLoading(true);
+    setAiRecommendations([]);
+    const recs = await recommendNextExercise(activeWorkout.exercises, aiGoal, aiLimitations);
+    setAiRecommendations(recs);
+    setAiLoading(false);
   };
 
   const renderSetInputs = (exercise: Exercise, set: SetData, mode: TrackingMode) => {
@@ -249,13 +264,24 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
           );
         })}
 
-        <button 
-          onClick={() => setShowExerciseSelector(true)}
-          className="w-full py-4 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white hover:border-slate-500 flex flex-col items-center justify-center transition-colors"
-        >
-          <Plus className="w-6 h-6 mb-1" />
-          <span className="text-sm font-medium">Add Exercise</span>
-        </button>
+        <div className="grid grid-cols-5 gap-3">
+            <button 
+            onClick={() => setShowExerciseSelector(true)}
+            className="col-span-4 py-4 bg-slate-800 border border-slate-700 rounded-xl text-slate-300 hover:text-white hover:border-slate-500 flex flex-col items-center justify-center transition-colors"
+            >
+            <Plus className="w-6 h-6 mb-1" />
+            <span className="text-sm font-medium">Add Exercise</span>
+            </button>
+
+            <button 
+            onClick={() => setShowAiModal(true)}
+            className="col-span-1 py-4 bg-purple-600/20 border border-purple-500/40 rounded-xl text-purple-300 hover:bg-purple-600/30 flex flex-col items-center justify-center transition-colors"
+            title="Ask AI what's next"
+            >
+            <Sparkles className="w-6 h-6 mb-1" />
+            <span className="text-[10px] font-bold uppercase">AI</span>
+            </button>
+        </div>
 
         <button onClick={cancelWorkout} className="w-full py-3 text-red-400 hover:text-red-300 text-sm">
             Cancel Workout
@@ -267,6 +293,74 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
             onSelect={handleAddExercise} 
             onClose={() => setShowExerciseSelector(false)} 
           />
+      )}
+
+      {/* AI Suggest Next Modal */}
+      {showAiModal && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md flex flex-col max-h-[80vh] shadow-2xl animate-in fade-in zoom-in duration-200">
+            <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50 rounded-t-xl">
+              <h3 className="text-white font-bold flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-500" />
+                Recommend Next
+              </h3>
+              <button onClick={() => setShowAiModal(false)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="p-4 overflow-y-auto">
+                <div className="space-y-4 mb-6">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Current Goal</label>
+                        <input 
+                            autoFocus
+                            className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:border-purple-500 outline-none placeholder:text-slate-600"
+                            placeholder="e.g. Finish chest, switch to triceps"
+                            value={aiGoal}
+                            onChange={e => setAiGoal(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-1">Equipment / Issues</label>
+                        <input 
+                            className="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 text-white focus:border-purple-500 outline-none placeholder:text-slate-600"
+                            placeholder="e.g. Bench press taken, left shoulder hurts"
+                            value={aiLimitations}
+                            onChange={e => setAiLimitations(e.target.value)}
+                        />
+                    </div>
+                    
+                    <button 
+                        onClick={handleAiSuggest}
+                        disabled={!aiGoal || aiLoading}
+                        className="w-full py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl transition-colors flex justify-center items-center gap-2"
+                    >
+                        {aiLoading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        Get Suggestions
+                    </button>
+                </div>
+
+                {aiRecommendations.length > 0 && (
+                    <div className="space-y-3">
+                        <h4 className="text-sm font-bold text-slate-300 uppercase border-b border-slate-700 pb-2">Suggestions</h4>
+                        {aiRecommendations.map((rec, i) => (
+                            <div key={i} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex justify-between items-center group">
+                                <div>
+                                    <div className="font-bold text-white group-hover:text-purple-300 transition-colors">{rec.name}</div>
+                                    <div className="text-xs text-slate-400 mt-1">{rec.description}</div>
+                                </div>
+                                <button 
+                                    onClick={() => handleAddExercise(rec)}
+                                    className="p-2 bg-slate-700 hover:bg-emerald-600 text-white rounded-lg transition-colors"
+                                >
+                                    <Plus className="w-5 h-5" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
