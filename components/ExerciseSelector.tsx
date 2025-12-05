@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, X, ArrowLeft, Sparkles, Dumbbell, HeartPulse, PersonStanding } from 'lucide-react';
+import { Search, Plus, X, ArrowLeft, Sparkles, Dumbbell, HeartPulse, PersonStanding, Pencil } from 'lucide-react';
 import { DEFAULT_EXERCISES } from '../data/exercises';
 import { ExerciseDefinition, ExerciseType, TrackingMode } from '../types';
 import { getExerciseDetails } from '../services/geminiService';
@@ -45,11 +45,11 @@ const MUSCLE_GROUPS = [
 ];
 
 export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, onClose }) => {
-    const { customExercises, addCustomExercise } = useStore();
-    const [mode, setMode] = useState<'SEARCH' | 'CREATE'>('SEARCH');
+    const { customExercises, updateCustomExercise } = useStore();
+    const [mode, setMode] = useState<'SEARCH' | 'CREATE' | 'EDIT'>('SEARCH');
     const [search, setSearch] = useState('');
     
-    // Create Form State
+    // Create/Edit Form State
     const [newName, setNewName] = useState('');
     const [newType, setNewType] = useState<ExerciseType>(ExerciseType.Weight);
     const [targetInput, setTargetInput] = useState('');
@@ -60,9 +60,21 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
     // Suggestions State
     const [showTargetSuggestions, setShowTargetSuggestions] = useState(false);
 
-    // Combine default and custom exercises
+    // Combine default and custom exercises, prefer custom if names match
     const allExercises = useMemo(() => {
-        return [...customExercises, ...DEFAULT_EXERCISES];
+        const map = new Map<string, ExerciseDefinition>();
+        
+        // Add defaults first
+        DEFAULT_EXERCISES.forEach(ex => {
+            map.set(ex.name.toLowerCase(), ex);
+        });
+        
+        // Overwrite with custom
+        customExercises.forEach(ex => {
+            map.set(ex.name.toLowerCase(), ex);
+        });
+
+        return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
     }, [customExercises]);
 
     const filtered = allExercises.filter(e => 
@@ -73,11 +85,27 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
     useEffect(() => {
         if (mode === 'CREATE' && search) {
             setNewName(search);
+            // Reset others
+            setSelectedTargets([]);
+            setTargetInput('');
         }
     }, [mode, search]);
 
     const handleSwitchToCreate = () => {
         setMode('CREATE');
+        setNewName(search);
+        setNewType(ExerciseType.Weight);
+        setSelectedTargets([]);
+        setNewTrackingMode('weight_reps');
+    };
+
+    const handleEdit = (ex: ExerciseDefinition) => {
+        setMode('EDIT');
+        setNewName(ex.name);
+        setNewType(ex.type);
+        setNewTrackingMode(ex.trackingMode || 'weight_reps');
+        const tags = ex.target.split(',').map(t => t.trim()).filter(t => t);
+        setSelectedTargets(tags);
     };
 
     const handleAiFill = async () => {
@@ -86,7 +114,6 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
         const details = await getExerciseDetails(newName);
         if (details) {
             setNewType(details.type);
-            // Split comma separated string into tags, trim whitespace
             const tags = details.target.split(',').map(t => t.trim()).filter(t => t);
             setSelectedTargets(tags);
             setNewTrackingMode(details.trackingMode);
@@ -94,9 +121,8 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
         setLoadingAi(false);
     };
 
-    const handleCreate = () => {
+    const handleSave = (addToWorkout: boolean) => {
         if (!newName) return;
-        // Combine selected targets plus whatever is currently typed in the input
         const finalTargets = [...selectedTargets];
         if (targetInput.trim() && !finalTargets.includes(targetInput.trim())) {
             finalTargets.push(targetInput.trim());
@@ -110,11 +136,16 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
             trackingMode: newTrackingMode
         };
 
-        // Save to master list for future use
-        addCustomExercise(newDefinition);
+        // Update Store (Handles both create new and update existing)
+        updateCustomExercise(newDefinition);
 
-        // Add to current workout
-        onSelect(newDefinition);
+        if (addToWorkout) {
+            onSelect(newDefinition);
+        } else {
+            // Just saving edits, go back to search
+            setMode('SEARCH');
+            setSearch('');
+        }
     };
 
     const addTarget = (t: string) => {
@@ -139,7 +170,6 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
         }
     };
 
-    // Update tracking mode default based on type selection if user hasn't manually set a weird combo
     const handleTypeChange = (t: ExerciseType) => {
         setNewType(t);
         if (t === ExerciseType.Cardio) setNewTrackingMode('time_distance');
@@ -147,7 +177,7 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
         else setNewTrackingMode('weight_reps');
     };
 
-    if (mode === 'CREATE') {
+    if (mode === 'CREATE' || mode === 'EDIT') {
         const filteredMuscles = MUSCLE_GROUPS.filter(m => 
             m.toLowerCase().includes(targetInput.toLowerCase()) && 
             !selectedTargets.includes(m)
@@ -160,7 +190,7 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
                         <button onClick={() => setMode('SEARCH')} className="text-slate-400 hover:text-white">
                             <ArrowLeft className="w-5 h-5" />
                         </button>
-                        <h3 className="text-white font-bold">Create Custom Exercise</h3>
+                        <h3 className="text-white font-bold">{mode === 'CREATE' ? 'Create Custom Exercise' : 'Edit Exercise'}</h3>
                     </div>
 
                     <div className="p-6 space-y-6">
@@ -173,6 +203,10 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
                                     placeholder="e.g. Zottman Curl"
                                     value={newName}
                                     onChange={e => setNewName(e.target.value)}
+                                    // Disable name editing in edit mode to prevent duplicates/confusion, or allow renaming which creates new?
+                                    // Let's allow editing, it acts as upsert based on name.
+                                    disabled={mode === 'EDIT'} 
+                                    title={mode === 'EDIT' ? "Cannot rename exercises, create a new one instead." : ""}
                                 />
                                 <button 
                                     onClick={handleAiFill}
@@ -183,7 +217,7 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
                                     {loadingAi ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" /> : <Sparkles className="w-5 h-5" />}
                                 </button>
                             </div>
-                            <p className="text-[10px] text-slate-500 mt-1">Tip: Enter a name and click the sparkles to auto-detect details.</p>
+                            {mode === 'CREATE' && <p className="text-[10px] text-slate-500 mt-1">Tip: Enter a name and click the sparkles to auto-detect details.</p>}
                         </div>
 
                         <div>
@@ -242,13 +276,23 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
                             </div>
                         </div>
                         
-                        <button 
-                            onClick={handleCreate}
-                            disabled={!newName}
-                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl transition-colors"
-                        >
-                            Add to Workout
-                        </button>
+                        <div className="flex gap-3">
+                            {mode === 'EDIT' && (
+                                <button 
+                                    onClick={() => handleSave(false)}
+                                    className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition-colors"
+                                >
+                                    Save Changes
+                                </button>
+                            )}
+                            <button 
+                                onClick={() => handleSave(true)}
+                                disabled={!newName}
+                                className={`flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 text-white font-bold rounded-xl transition-colors ${mode === 'EDIT' ? '' : 'w-full'}`}
+                            >
+                                {mode === 'EDIT' ? 'Update & Add' : 'Add to Workout'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -279,17 +323,27 @@ export const ExerciseSelector: React.FC<ExerciseSelectorProps> = ({ onSelect, on
 
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {filtered.map((ex, i) => (
-                        <button 
+                        <div 
                             key={i}
-                            onClick={() => onSelect(ex)}
-                            className="w-full text-left p-3 rounded-lg hover:bg-slate-800 transition-colors group"
+                            className="w-full flex items-center p-3 rounded-lg hover:bg-slate-800 transition-colors group"
                         >
-                            <div className="flex justify-between items-start">
-                                <span className="text-white font-medium group-hover:text-blue-400 transition-colors">{ex.name}</span>
-                                <span className="text-[10px] bg-slate-800 border border-slate-600 text-slate-400 px-1.5 py-0.5 rounded uppercase">{ex.type.split(' ')[0]}</span>
-                            </div>
-                            <div className="text-xs text-slate-500 mt-1 truncate">{ex.target}</div>
-                        </button>
+                            <button 
+                                onClick={() => onSelect(ex)}
+                                className="flex-1 text-left"
+                            >
+                                <div className="flex justify-between items-start">
+                                    <span className="text-white font-medium group-hover:text-blue-400 transition-colors">{ex.name}</span>
+                                    <span className="text-[10px] bg-slate-800 border border-slate-600 text-slate-400 px-1.5 py-0.5 rounded uppercase">{ex.type.split(' ')[0]}</span>
+                                </div>
+                                <div className="text-xs text-slate-500 mt-1 truncate">{ex.target}</div>
+                            </button>
+                            <button 
+                                onClick={() => handleEdit(ex)}
+                                className="ml-2 p-2 text-slate-500 hover:text-blue-400 hover:bg-slate-700 rounded-lg transition-colors"
+                            >
+                                <Pencil className="w-4 h-4" />
+                            </button>
+                        </div>
                     ))}
 
                     <button 

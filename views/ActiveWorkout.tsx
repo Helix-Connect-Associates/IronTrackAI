@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { Exercise, ExerciseType, SetData, ExerciseDefinition, TrackingMode } from '../types';
-import { Plus, Check, Timer, Trash2, Sparkles, X } from 'lucide-react';
+import { Plus, Check, Timer, Trash2, Sparkles, X, MoreVertical } from 'lucide-react';
 import { ExerciseSelector } from '../components/ExerciseSelector';
 import { generateId } from '../data/storage';
 import { recommendNextExercise } from '../services/geminiService';
@@ -22,6 +21,9 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
   const [aiLimitations, setAiLimitations] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendations, setAiRecommendations] = useState<ExerciseDefinition[]>([]);
+
+  // Menu State
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeWorkout?.startTime) return;
@@ -77,6 +79,13 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
         ...activeWorkout,
         exercises: updatedExercises
     });
+  };
+
+  const removeExercise = (exerciseId: string) => {
+      if (window.confirm("Remove this exercise from the workout?")) {
+          updateExercises(exercises => exercises.filter(e => e.id !== exerciseId));
+          setActiveMenuId(null);
+      }
   };
 
   const addSet = (exerciseId: string) => {
@@ -186,7 +195,7 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
   };
 
   return (
-    <div className="h-full flex flex-col pb-20">
+    <div className="h-full flex flex-col pb-20" onClick={() => setActiveMenuId(null)}>
       {/* Top Bar */}
       <div className="sticky top-0 bg-slate-900/95 backdrop-blur border-b border-slate-800 z-10 p-4 flex justify-between items-center shadow-md">
         <div>
@@ -208,57 +217,76 @@ const ActiveWorkout: React.FC<ActiveWorkoutProps> = ({ onFinish }) => {
         {activeWorkout.exercises.map((exercise, idx) => {
           const mode = resolveTrackingMode(exercise);
           const headers = getHeaders(mode);
+          const isMenuOpen = activeMenuId === exercise.id;
           
           return (
-            <div key={exercise.id} className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-sm">
-                <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center">
-                <div>
-                    <h3 className="text-blue-100 font-semibold">{exercise.name}</h3>
-                    <span className="text-xs text-slate-400 uppercase">{exercise.type}</span>
-                </div>
-                <button className="text-slate-500 hover:text-slate-300">•••</button>
+            <div key={exercise.id} className="bg-slate-800 rounded-xl overflow-visible border border-slate-700 shadow-sm relative">
+                <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center rounded-t-xl">
+                    <div>
+                        <h3 className="text-blue-100 font-semibold">{exercise.name}</h3>
+                        <span className="text-xs text-slate-400 uppercase">{exercise.type}</span>
+                    </div>
+                    <div className="relative">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setActiveMenuId(isMenuOpen ? null : exercise.id); }}
+                            className="text-slate-500 hover:text-slate-300 p-1"
+                        >
+                            <MoreVertical className="w-5 h-5" />
+                        </button>
+                        
+                        {isMenuOpen && (
+                            <div className="absolute right-0 top-full mt-1 w-40 bg-slate-800 border border-slate-600 rounded-lg shadow-xl z-20 overflow-hidden">
+                                <button 
+                                    onClick={() => removeExercise(exercise.id)}
+                                    className="w-full text-left px-4 py-3 text-red-400 hover:bg-slate-700 hover:text-red-300 text-sm flex items-center gap-2"
+                                >
+                                    <Trash2 className="w-4 h-4" /> Remove
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
                 
                 <div className="p-2">
-                <div className="grid grid-cols-10 gap-2 text-xs text-slate-500 uppercase text-center mb-2 px-2">
-                    <div className="col-span-1">Set</div>
-                    <div className="col-span-3">{headers[0]}</div>
-                    <div className="col-span-3">{headers[1]}</div>
-                    <div className="col-span-3">Status</div>
-                </div>
+                    <div className="grid grid-cols-10 gap-2 text-xs text-slate-500 uppercase text-center mb-2 px-2">
+                        <div className="col-span-1">Set</div>
+                        <div className="col-span-3">{headers[0]}</div>
+                        <div className="col-span-3">{headers[1]}</div>
+                        <div className="col-span-3">Status</div>
+                    </div>
 
-                {exercise.sets.map((set, setIdx) => {
-                    const { col1, col2 } = renderSetInputs(exercise, set, mode);
-                    return (
-                        <div key={set.id} className={`grid grid-cols-10 gap-2 items-center mb-2 p-2 rounded-lg transition-colors ${set.completed ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-slate-900/50 border border-transparent'}`}>
-                            <div className="col-span-1 text-center text-slate-400 font-mono text-sm">{setIdx + 1}</div>
-                            <div className="col-span-3">{col1}</div>
-                            <div className="col-span-3">{col2}</div>
+                    {exercise.sets.map((set, setIdx) => {
+                        const { col1, col2 } = renderSetInputs(exercise, set, mode);
+                        return (
+                            <div key={set.id} className={`grid grid-cols-10 gap-2 items-center mb-2 p-2 rounded-lg transition-colors ${set.completed ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-slate-900/50 border border-transparent'}`}>
+                                <div className="col-span-1 text-center text-slate-400 font-mono text-sm">{setIdx + 1}</div>
+                                <div className="col-span-3">{col1}</div>
+                                <div className="col-span-3">{col2}</div>
 
-                            <div className="col-span-3 flex justify-center gap-2">
-                                <button 
-                                    onClick={() => toggleSetComplete(exercise.id, set.id)}
-                                    className={`w-8 h-8 rounded flex items-center justify-center transition-all ${set.completed ? 'bg-emerald-500 text-white scale-105' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
-                                >
-                                    <Check className="w-5 h-5" />
-                                </button>
-                                <button 
-                                    onClick={() => removeSet(exercise.id, set.id)}
-                                    className="w-8 h-8 rounded flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
-                                >
-                                    <Trash2 className="w-4 h-4" />
-                                </button>
+                                <div className="col-span-3 flex justify-center gap-2">
+                                    <button 
+                                        onClick={() => toggleSetComplete(exercise.id, set.id)}
+                                        className={`w-8 h-8 rounded flex items-center justify-center transition-all ${set.completed ? 'bg-emerald-500 text-white scale-105' : 'bg-slate-700 text-slate-400 hover:bg-slate-600'}`}
+                                    >
+                                        <Check className="w-5 h-5" />
+                                    </button>
+                                    <button 
+                                        onClick={() => removeSet(exercise.id, set.id)}
+                                        className="w-8 h-8 rounded flex items-center justify-center bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-colors"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    );
-                })}
+                        );
+                    })}
 
-                <button 
-                    onClick={() => addSet(exercise.id)}
-                    className="w-full py-3 mt-2 flex items-center justify-center text-sm text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors border border-dashed border-blue-500/30 hover:border-blue-500"
-                >
-                    <Plus className="w-4 h-4 mr-1" /> Add Set
-                </button>
+                    <button 
+                        onClick={() => addSet(exercise.id)}
+                        className="w-full py-3 mt-2 flex items-center justify-center text-sm text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors border border-dashed border-blue-500/30 hover:border-blue-500"
+                    >
+                        <Plus className="w-4 h-4 mr-1" /> Add Set
+                    </button>
                 </div>
             </div>
           );

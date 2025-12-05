@@ -26,6 +26,7 @@ interface StoreContextType {
   deleteTemplate: (id: string) => void;
   
   addCustomExercise: (exercise: ExerciseDefinition) => void;
+  updateCustomExercise: (exercise: ExerciseDefinition) => void;
 
   updateUser: (user: UserProfile) => void;
   exportData: () => string;
@@ -228,6 +229,21 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       });
   };
 
+  const updateCustomExercise = (exercise: ExerciseDefinition) => {
+    setCustomExercises(prev => {
+        const existingIndex = prev.findIndex(e => e.name.toLowerCase() === exercise.name.toLowerCase());
+        if (existingIndex >= 0) {
+            // Update existing custom
+            const newArr = [...prev];
+            newArr[existingIndex] = exercise;
+            return newArr;
+        } else {
+            // Add new (effectively shadowing a default or creating new)
+            return [...prev, exercise];
+        }
+    });
+  };
+
   const exportData = () => {
     if (!currentUserId) return '{}';
     return JSON.stringify(Storage.getAllUserData(currentUserId), null, 2);
@@ -265,6 +281,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       saveTemplate,
       deleteTemplate,
       addCustomExercise,
+      updateCustomExercise,
       updateUser: setUser,
       exportData,
       importData
